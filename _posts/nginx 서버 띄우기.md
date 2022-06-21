@@ -1,0 +1,158 @@
+# nginx 서버 띄우기
+### 기능
+nginx는 경량 웹 서버이다. 클라이언트로 요청을 받았을 때, 요청에 맞는 정적 파일을 응답해주는 http web server로 활용이 되기도 하고, reverse proxy로 활용하여 WAS 서버의 부하를 줄이는 로드 밸런서의 역할을 할 수도 있다. 
+
+### 구조
+Nginx는 하나의 Master Process와 다수의 Worker Process로 구성되어 실행된다. Master Process는 설정 파일을 읽고, 유효성을 검사하며, Worker Process를 관리한다. 그리고 모든 요청은 Master Process에서 처리하지 않고 Master Process에 의해 생성된 Worker Process에서 생성한다. Worker Process의 개수는 설정 파일에서 정의되며, 정의된 프로세스 개수와 사용 가능한 CPU 코어 숫자에 맞게 자동으로 조정된다.
+
+### Apache와 다른 점
+Apache는 클라이언트로부터 받은 요청을 처리할 때 새로운 프로세스 또는 새로은 쓰레드를 생성한다(nginx는 Worker Process에게 처리를 넘겨주는 것이 특징인데, Apache는 바로 작업을 넘기기 보다는 새로운 프로세스와 쓰레드를 생성하여 작업 처리에 개입하는 개념같다..) 매 요청 마다 새로운 프로세스와 쓰레드를 생성하므로 트래픽이 많아지면 그 만큼의 새로운 자원들이 생성이 되어 CPU와 메모리 자원의 소모가 커질 수 밖에 없다. 
+
+반면 nginx는 **Event Driven** 구조로 동작을 하며 한 개 또는 고정된 프로세스만 생성하고, 비동기 방식으로 요청들을 동시에 처리할 수 있게 한다. 이렇듯 nginx는 새로운 요청에 새로운 프로세스를 생성하는 것이 아니라 비동기로 처리를 한다는 점이 Apache와 다른 점이라고 할 수 있다. nginx는 단일 서버에서도 동시에 많은 연결을 처리합니다.
+
+nginx의 특징을 Event Driven이라고 설명했었죠? **Apache 서버**의 특징들은 **Thread / Process** 라고 할 수 있습니다 
+
+### 설치
+여러 블로그들을 참고해보면 ngnix의 설치 방법으로 여러 가지를 안내하고 있다. 나는 맥북, m1 환경에서 작업을 하고 있으므로, brew라는 패키지 관리툴을 이용해 설치를 했다.
+
+- brew nginx 설치 시 경로 : `/opt/homebrew/etc/nginx/`
+- 많은 블로그에서 systemctl로 uvicorn을 컨트롤하는 방법을 안내해 주고 있었는데, 그렇게 하진 않았다. 사용해 보지는 않았지만, 리눅스의 systemctl처럼 brew에도 비슷한 기능이 있는 것으로 보인다. 일단 brew services라는 것에 nginx가 자동으로 등록이 되고, start, reload 등의 명령으로 서비스를 다룰 수 있는 것 같다. 
+- brew로 설치 시 `nginx.conf` 파일의 위치 : `vim /opt/homebrew/etc/nginx/nginx.conf`
+- 경로를 다를 수 있으니 참고만 하길 바란다.
+
+### nginx 실행
+nginx를 brew로 설치했기 때문에 사용자가 허용가능한 1000번 이상의 포트인 8080이 nginx의 기본 포트라고 한다. 밑에서 부연설명을 하겠지만, 미니 프로젝트와 연동을 하려다가 안되서 다시 정리하는 차원에서 작성된 글이기 때문에, 옵션을 공부를 해보았다. 주석으로 달아 놓은 부분을 참고하면 좋다. (도움을 받은 글은 reference에 정리해 놓음)
+
+nginx 설치 후 별다른 설정을 건드리지 않고도 Welcome to nginx이라는 화면을 볼 수 있다.
+
+### /opt/homebrew/etc/nginx/nginx.conf 파일의 옵션
+
+```bash
+#01
+# worker 프로세스를 실행할 사용자 설정
+# - 이 사용자에 따라 권한이 달라질 수 있다.
+#user  nobody;
+
+
+# #02
+# 실행할 worker 프로세스 설정
+# - 서버에 장작되어 있는 코어 수 만큼 할당하는 것이 보통, 더 높게도  설정 가능
+worker_processes  1;
+
+
+# #03
+# 오류 로그를 남길 파일 경로 지정
+# error_log  logs/error.log;
+# error_log  logs/error.log  notice;
+# error_log  logs/error.log  info;
+
+error_log  /var/nginx/logs/error.log;
+error_log  /var/nginx/logs/error.log  notice;
+error_log  /var/nginx/logs/error.log  info;
+
+
+# #04
+# NGINX 마스터 프로세스 ID를 지정할 파일 경로 지정
+# pid        logs/nginx.pid;
+
+
+# #05
+# 접속 처리에 관한 설정을 한다
+events {
+    # 워커 프로세스 한 개당 동시 접속 수 지정 (512 혹은 1024를 기준으로 지정)
+    worker_connections  256;
+}
+
+
+# #06
+# 웹 프록시 관련 서버 설정
+http {
+    # include라는 표현은 파일을 읽어 온다는 표현. 아래와 같이 작성하면, mime.types 파일을 읽는다는 뜻
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    # MIME 타입 설정
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    # 엑세스 로그 형식 지정
+    access_log    var/nginx/logs/access.log  main;
+
+    # sendfile api를 사용할지 말지 결정
+    sendfile        on;
+    #tcp_nopush     on;
+
+    # 접속 시 커넥션을 몇 초 동안 유지할 지에 대한 설정
+    #keepalive_timeout  0;
+    keepalive_timeout  65;
+
+    # nginx 버전 숨기기 옵션
+    # server_tokens off
+
+    #gzip  on;
+
+    server {
+        # 설명 그대로 http라는 블록 안에 server 위치. 그리고 밑에 바로 location 위치.
+        listen       8080;
+        server_name  localhost;
+        # listen       8080;
+        # server_name  fastapi;
+
+        #charset koi8-r;
+
+        #access_log  logs/host.access.log  main;
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        error_page  404              /404.html;
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    include sites-enabled/*;
+}
+
+```
+
+### 알아두어야 할 명령어
+
+옵션을 설정하고, 뭔가 바뀌면 해당 내용을 nginx에 반영하는 명령어.
+```
+brew services restart nginx
+```
+
+sites-available 폴더가 잘 작성이 되었는지, 기타 설정들이 모두 잘 작성이 되었는지 확인하는 명령어.
+```
+nginx -t
+```
+
+### Reverse Proxy
+Nginx는 리버스 프록시로도 활용할 수 있음. 리버스 프록시란 외부 클라이언트에서 서버로 접근 시 중간에서 중개자 역할을 하여 내부 서버로 접근할 수 있도록 도와주는 서버
+리버스 프록시를 활용했을 때 얻을 수 있는 장점은 아래와 같음
+- 보안 : 외부 사용자로부터 내부망에 있는 서버의 존재를 숨길 수 있음 모든 요청은 리버스 프록시 서버에서 받으며 매핑되는 내부 서버로 요청을 전달 또한 Nginx는 SSL 설정도 가능
+- 로드밸런싱 : 리버스 프록시 서버가 내부 서버에 대한 정보를 알고 있으므로 각 서버의 상태에 따라 부하를 분산시키며 요청을 전달
+
+### uvicorn과 gunicorn의 차이
+- uvicorn은 Single Process로만 동작. gunicorn은 Multi Process를 사용하여 관리할 수 있는 WGSI 서버. 실제로 gunicorn으로  프로세스를 띄워보면 부모 프로세스에서 실행한 자식  프로세스들이 워커의 갯수 만큼 실행이 되고 있는 걸 확인할 수 있다.
+
+### 정리
+몇 주 전에 미니 프로젝트와 연동을 해보려는 시도를 하다가 실패한 이후, 회사 일에 집중하다가 다시 시작하게 되었다. 현재 회사 프로젝트의 경우 gunicorn만 사용을 하고 있는데, 앞으로의 프로젝트에서 nginx를 앞 단에 두고 사용하게 될 경우를 대비해 공부를 해본다.
+
+### Reference
+[nginx는-들어봤는데-gunicorn은-뭐죠](https://facerain.club/fastapi-nginx/#nginx는-들어봤는데-gunicorn은-뭐죠)  
+[Nginx 이해하기](https://icarus8050.tistory.com/57)  
+[Nginx 설치 및 nginx.conf, default.conf 이해하기](https://phsun102.tistory.com/45)  
+[Nginx동작방식 및 설치부터 프록시, 로드밸런서까지](https://willseungh0.tistory.com/137)  
+[mac에 nginx  설치하기](https://oneboard.tistory.com/8)    
+[부들잎의 이것저것:티스토리 : nginx-site-enabled-site-availablemd](https://forteleaf.tistory.com/entry/nginx-site-enabled-site-availablemd)  
+[Nginx에서 가상서버 환경 설정하기](https://twpower.github.io/50-make-nginx-virtual-servers)  
+[Django + Nginx + Gunicorn 연동하기 2](https://leffept.tistory.com/283)  
+
